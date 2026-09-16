@@ -1,0 +1,34 @@
+{
+	servers :8080 {
+		trusted_proxies static 172.18.0.3/32
+		trusted_proxies_strict
+	}
+}
+
+*.local.{$MY_DOMAIN} {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+
+	encode zstd gzip
+
+	@dev header_regexp dev Host ^(?P<port>[3-9][0-9]{3})\.
+	handle @dev {
+		reverse_proxy host.docker.internal:{re.dev.port} {
+			header_up Host localhost:{re.dev.port}
+		}
+	}
+
+	handle {
+		respond "No development server is configured for this hostname." 404
+	}
+}
+
+:8080 {
+	log
+	encode zstd gzip
+
+	handle {
+		respond "No public application is configured for this hostname." 404
+	}
+}

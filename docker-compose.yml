@@ -1,0 +1,67 @@
+services:
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: caddy-cloudflare:2.11.4
+    container_name: caddy
+    hostname: caddy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    env_file:
+      - .env
+      - .env.secret
+    extra_hosts:
+      - "host.docker.internal:172.18.0.1"
+    ports:
+      - "${TAILSCALE_IP:?set to the server's Tailscale IP}:443:443"
+      - "${TAILSCALE_IP:?set to the server's Tailscale IP}:443:443/udp"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      caddy_net:
+        ipv4_address: 172.18.0.2
+    volumes:
+      # Directory mount, not a single-file mount: editors save via
+      # rename, which would detach a file mount from the new inode.
+      - ./caddy:/etc/caddy:ro
+      - ./caddy_config:/config
+      - ./caddy_data:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.2
+    container_name: cloudflared
+    user: "${PUID:-1000}:${PGID:-1000}"
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token-file /run/secrets/cloudflared-token
+    depends_on:
+      caddy:
+        condition: service_healthy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      caddy_net:
+        ipv4_address: 172.18.0.3
+    volumes:
+      - ./.cloudflared.token:/run/secrets/cloudflared-token:ro
+
+networks:
+  caddy_net:
+    name: caddy_net
+    external: true
